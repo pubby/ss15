@@ -88,7 +88,7 @@ $(client_DIR)%.d: $(client_DIR)%.cpp
 ##########################################################################
 # server
 
-server_LDLIBS:=-lboost_system -lsfml-graphics -lsfml-window -lsfml-system
+server_LDLIBS:=-lboost_system -lluajit-5.1
 server_SRCS:=$(filter-out %_tests.cpp,$(wildcard $(server_DIR)*.cpp))
 server_OBJS:=$(server_SRCS:.cpp=.o)
 server_DEPS:=$(server_SRCS:.cpp=.d)

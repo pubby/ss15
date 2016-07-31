@@ -1,11 +1,74 @@
 #ifndef THREADSAFE_QUEUE_HPP
 #define THREADSAFE_QUEUE_HPP
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <mutex>
 #include <utility>
+
+template<typename T>
+class flush_queue
+{
+public:
+    explicit flush_queue(std::size_t reserve = 0)
+    {
+        vector.reserve(reserve);
+        capacity.store(vector.capacity(), std::memory_order_release);
+    }
+
+    flush_queue(flush_queue const&) = delete;
+    flush_queue& operator=(flush_queue const&) = delete;
+
+    template<typename... Args>
+    void emplace_back(Args&&... args)
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        vector.emplace_back(std::forward<Args>(args)...);
+    }
+
+    bool try_pop_back(T& t)
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        if(vector.empty())
+            return false;
+        t = std::move(vector.back());
+        vector.pop_back();
+        return true;
+    }
+
+    std::vector<T> flush()
+    {
+        std::size_t c;
+        std::size_t r = capacity.load(std::memory_order_relaxed);
+
+        std::vector<T> replacement;
+        replacement.reserve(r);
+
+        {
+            std::unique_lock<std::mutex> lock(mutex);
+            c = vector.capacity();
+            vector.swap(replacement);
+        }
+
+        while(c > r 
+          && capacity.compare_exchange_weak(r, c, std::memory_order_relaxed));
+
+        return replacement;
+    }
+
+    std::vector<T> container() const
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        return vector;
+    }
+
+private:
+    std::vector<T> vector;
+    std::atomic<std::size_t> capacity;
+    mutable std::mutex mutex;
+};
 
 // Protects a queue-like container with a mutex.
 // Implementation is minimal; add member functions as needed.
@@ -16,7 +79,7 @@ public:
     using container_type = Container;
     using value_type = T;
 
-    threadsafe_queue(std::size_t max_size = SIZE_MAX)
+    explicit threadsafe_queue(std::size_t max_size = SIZE_MAX)
     : m_max_size(max_size)
     {}
 

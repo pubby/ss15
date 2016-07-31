@@ -8,15 +8,15 @@
 
 namespace fnv1a
 {
-    constexpr std::uint64_t prime64 = 1099511628211;
-    constexpr std::uint64_t seed64  = 14695981039346656037;
+    constexpr std::uint64_t prime64 = 1099511628211ull;
+    constexpr std::uint64_t seed64  = 14695981039346656037ull;
 
     /// Hash a single byte.
     [[gnu::always_inline]]
     inline std::uint64_t hash64(unsigned char byte,
                                 std::uint64_t hash = seed64)
     {
-      return (byte ^ hash) * prime;
+      return (byte ^ hash) * prime64;
     }
 
     inline std::uint64_t hash64(char const* data, std::size_t size,

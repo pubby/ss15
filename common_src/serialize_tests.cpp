@@ -1,4 +1,4 @@
-#include "serialize2.hpp"
+#include "serialize.hpp"
 
 #include <catch/catch.hpp>
 

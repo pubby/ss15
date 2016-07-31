@@ -49,10 +49,10 @@ public:
         return map.emplace(std::forward<Args>(args)...).second;
     }
 
-    void erase(key_type const& k)
+    bool erase(key_type const& k)
     {
         std::unique_lock<std::shared_mutex> lock(mutex);
-        return map.clear(k);
+        return map.erase(k);
     }
 
     void clear()

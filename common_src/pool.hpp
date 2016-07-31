@@ -7,6 +7,7 @@
 #include <array>
 #include <atomic>
 #include <cassert>
+#include <memory>
 #include <type_traits>
 
 template<typename BlockType, std::size_t NumBlocks>
@@ -23,10 +24,10 @@ public:
     pool_template(pool_template const&) = delete;
     pool_template& operator=(pool_template const&) = delete;
 
-    value_type* malloc() noexcept
+    value_type* alloc() noexcept
     {
         for(block_type& block : blocks)
-            if(!block.allocated.test_and_set(std::memory_order_acquire))
+            if(!block.allocated.test_and_set(std::memory_order_acq_rel))
                 return &block.value;
         return nullptr;
     }
@@ -61,7 +62,7 @@ struct sharable_pool_block
 };
 
 template<typename T, std::size_t NumBlocks>
-using memory_pool = pool_template<simple_pool_block<T>, NumBlocks>;
+using simple_pool = pool_template<simple_pool_block<T>, NumBlocks>;
 
 // Sharable pool allows the allocation of shared_pooled_ptrs.
 template<typename T, std::size_t NumBlocks>
@@ -152,7 +153,7 @@ make_shared_from_pool(P& pool)
     using value_type = typename P::value_type;
 
     block_type* block_ptr;
-    if(value_type* value_ptr = pool.malloc())
+    if(value_type* value_ptr = pool.alloc())
     {
         block_ptr = reinterpret_cast<block_type*>(value_ptr);
         block_ptr->owner = &pool;
@@ -167,4 +168,69 @@ make_shared_from_pool(P& pool)
     return shared_pooled_ptr<value_type, P::size>(*block_ptr);
 }
 
+// A simple pool-like container where objects are created in chunks
+// without using uning uninitialized storage or placement new.
+// Objects are created when 'add_chunk' is called and their lifetimes
+// exist until the owning free_list_pool gets destroyed. This means:
+// - Calling 'alloc' does not necessarily create objects.
+// - Calling 'free' never destructs objects.
+// - Pointers to objects are valid even after they've been freed.
+// free_list_pool is NOT threadsafe.
+template<typename T, std::size_t ChunkSize = 64>
+struct free_list_pool
+{
+    using value_type = T;
+    static constexpr std::size_t chunk_size = ChunkSize;
+
+    free_list_pool() = default;
+    free_list_pool(const free_list_pool&) = delete;
+    free_list_pool(free_list_pool&&) = default;
+    free_list_pool& operator=(const free_list_pool&) = delete;
+    free_list_pool& operator=(free_list_pool&&) = default;
+
+    T* alloc()
+    {
+        if(free_list.empty())
+            add_chunk();
+
+        assert(!free_list.empty());
+
+        T* ret = free_list.back();
+        free_list.pop_back();
+        return ret;
+    }
+
+    void free(T* t) noexcept
+    {
+        if(!t)
+            return;
+
+        assert(free_list.capacity() > free_list.size());
+        free_list.push_back(t);
+    }
+
+private:
+    void add_chunk()
+    {
+        // Reserve first to get exception safety.
+        free_list.reserve((chunks.size() + 1) * chunk_size);
+        chunks.emplace_back(new T[chunk_size]());
+
+        T* const first_value = chunks.back().get();
+        T** const first_free = free_list.data() + free_list.size();
+
+        // Resize+copy is equivalent to calling push_back multiple times.
+        // (Except slightly faster!)
+        assert(free_list.capacity() >= free_list.size() + chunk_size);
+        free_list.resize(free_list.size() + chunk_size);
+        for(std::size_t i = 0; i != chunk_size; ++i)
+            *(first_free + i) = (first_value + i);
+    }
+
+    std::vector<std::unique_ptr<T[]>> chunks;
+    std::vector<T*> free_list;
+};
+
 #endif
+
+

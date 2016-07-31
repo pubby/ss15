@@ -4,10 +4,12 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
 #include <list>
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <random>
 #include <shared_mutex>
 #include <string>
 #include <thread>
@@ -22,7 +24,7 @@
 #include "pool.hpp"
 #include "safe_strand.hpp"
 #include "threadsafe_map.hpp"
-
+#include "threadsafe_queue.hpp"
 
 namespace asio = boost::asio;
 namespace posix_time = boost::posix_time;
@@ -33,26 +35,6 @@ using system_error = boost::system::system_error;
 
 constexpr std::size_t MAX_UDP_PAYLOAD = 1400;
 using udp_buffer_t = std::array<char, MAX_UDP_PAYLOAD>;
-
-class latest_received_sequence_t
-{
-public:
-    latest_received_sequence_t(std::uint32_t sequence = 0)
-    : latest(sequence)
-    {}
-
-    std::uint32_t update(std::uint32_t received_sequence)
-    {
-        std::unique_lock<std::mutex> lock(latest_mutex);
-        std::uint32_t const prev_latest = latest;
-        if(received_sequence > latest)
-            latest = received_sequence;
-        return prev_latest;
-    }
-private:
-    std::atomic<std::uint32_t> latest;
-    mutable std::mutex latest_mutex;
-};
 
 class server_t
 {
@@ -81,9 +63,13 @@ private:
     struct udp_socket_tag {};
     using udp_socket_key_t = strand_key<udp_socket_tag>;
 public:
-    server_t(std::string address, std::string port, std::size_t num_threads);
+    server_t
+    ( asio::io_service& io_service
+    , std::string address
+    , std::string port
+    , std::size_t num_threads);
 
-    void run();
+    std::deque<std::thread> run();
 
     asio::io_service const& io_service(server_key) const;
     asio::io_service& io_service(server_key);
@@ -108,11 +94,17 @@ private:
     , ip::udp::endpoint endpoint
     , stc_udp_message_t message
     , Handler handler);
+
+    void launch_tick();
+    void handle_tick();
 private:
+    // TODO: remove
+    std::random_device m_rng;
 
     std::size_t m_num_threads;
+    std::uint16_t m_port;
 
-    asio::io_service m_io_service;
+    asio::io_service& m_io_service;
     asio::signal_set m_terminate_signals;
     ip::tcp::acceptor m_tcp_acceptor;
     
@@ -123,7 +115,12 @@ private:
 
     address_map_t m_address_map;
 
-    game_state_t m_game_state;
+    flush_queue<cts_udp_received_t> m_udp_received;
+
+    asio::deadline_timer m_tick_timer;
+    std::unique_ptr<game_state_t> m_game_state;
+
+    std::deque<frame_t> m_frame_history;
 };
 
 template<typename Handler>
@@ -279,8 +276,6 @@ private:
 
     asio::ip::tcp::socket m_tcp_socket;
     safe_strand<tcp_socket_tag> m_tcp_socket_strand;
-
-    latest_received_sequence_t latest_received_sequence;
 };
 
 template<typename Handler>

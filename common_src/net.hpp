@@ -3,7 +3,6 @@
 
 #include <eggs/variant.hpp>
 
-#include "game.hpp"
 #include "serialize.hpp"
 
 using cts_tcp_message_t = eggs::variant
@@ -85,7 +84,7 @@ struct stc_tcp_game_state_t
 {
     SERIALIZED_DATA
     (
-        ((game_state_t::serialized_t) (game_state) ())
+        //((game_state_t::serialized_t) (game_state) ())
     )
 };
 
@@ -94,19 +93,19 @@ struct stc_tcp_game_state_t
 
 enum cts_input_t : std::uint8_t
 {
-    CTS_INPUT_NULL  = 0,
-    CTS_INPUT_UP    = 1 << 0,
-    CTS_INPUT_DOWN  = 1 << 1,
-    CTS_INPUT_LEFT  = 1 << 2,
-    CTS_INPUT_RIGHT = 1 << 3,
+    CTS_INPUT_NONE,
+    CTS_INPUT_UP,
+    CTS_INPUT_DOWN,
+    CTS_INPUT_LEFT,
+    CTS_INPUT_RIGHT,
 };
 
 struct cts_udp_header_t
 {
     SERIALIZED_DATA
     (
-        ((std::uint16_t) (sequence_number)    ())
-        ((std::uint16_t) (last_received_time) ())
+        ((std::uint64_t) (sequence_number)    (std::uint16_t))
+        ((std::uint64_t) (last_received_time) (std::uint16_t))
     )
 };
 
@@ -125,6 +124,12 @@ struct cts_udp_message_t
         ((cts_udp_header_t)       (header) ())
         ((cts_udp_message_body_t) (body)   ())
     )
+};
+
+struct cts_udp_received_t
+{
+    int player_id;
+    cts_udp_message_t message;
 };
 
 struct stc_udp_header_t
